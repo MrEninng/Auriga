@@ -45,10 +45,78 @@ static int kramdisk_getgeo(struct block_device *blk_dev, struct hd_geometry *geo
 	return 0;
 }
 
+//example
+/*static void sbull_transfer(struct sbull_dev *dev, unsigned long sector,
+        unsigned long nsect, char *buffer, int write)
+{
+    unsigned long offset = sector*KERNEL_sectOR_SIZE;
+    unsigned long nbytes = nsect*KERNEL_sectOR_SIZE;
 
+    if ((offset + nbytes) > dev->size) {
+        printk (KERN_NOTICE "Beyond-end write (%ld %ld)\n", offset, nbytes);
+        return;
+    }
+    if (write)
+        memcpy(dev->data + offset, buffer, nbytes);
+    else
+        memcpy(buffer, dev->data + offset, nbytes);
+}
+*/
+static void _ramdisk_request_worker(struct blk_device *dev, unsigned long sector,
+	unsigned long nsect,char *buff,  int write) 
+{
+	unsigned long offset = sector*logical_block_size;
+	unsigned long nbytes = nsect*logical_block_size;
+	
+	if ((offset + nbytes) > dev->size) {
+		printk(KERN_ALERT "TOO LARGE BUFF\n");
+		return;
+	}
+	
+	if (write) {
+		memcpy(dev->data, buff, nbytes);
+	} else {
+		memcpy(buff, dev->data + offset, nbytes);
+	}
+}
+
+
+
+
+/* example
+static void sbull_request(request_queue_t *q)
+{
+    struct request *req;
+
+    while ((req = elv_next_request(q)) != NULL) {
+        struct sbull_dev *dev = req->rq_disk->private_data;
+        if (! blk_fs_request(req)) {
+            printk (KERN_NOTICE "Skip non-fs request\n");
+            end_request(req, 0);
+            continue;
+        }
+        sbull_transfer(dev, req->sector, req->current_nr_sectors,
+                req->buffer, rq_data_dir(req));
+        end_request(req, 1);
+    }
+} */
 static void ramdisk_request(struct request_queue *queue)
 {
+	struct request *req;
 	
+	while ((req = blk_fetch_request(queue)) != NULL) {
+		struct blk_device *dev = req->rq_disk->private_data;
+		if (req->cmd_type != REQ_TYPE_FS) {
+			printk(KERN_NOTICE "Request has not fs type\n");
+			blk_end_request_cur(req, -EINVAL);
+			continue;
+		}
+		_ramdisk_request_worker(dev, blk_rq_pos(req), blk_rq_cur_sectors(req),
+			 req->buffer, rq_data_dir(req)); // process the request
+				 
+				 
+		blk_end_request_cur(req, 0);// delete last request
+	}
 }
 
 static struct block_device_operations fops = {
